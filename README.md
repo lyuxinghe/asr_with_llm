@@ -1,7 +1,5 @@
 # CMU 18781 Term Project: LLM REASONING FOR SPEECH RECOGNITION ERROR CORRECTION
 
-A clean, flexible PyTorch machine learning project template with a powerful configuration system and organized structure. **Use this as a template for all your ML projects!**
-
 ## Quick Start
 
 ### 1. Installation
