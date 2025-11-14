@@ -14,6 +14,7 @@ model = Speech2Text.from_pretrained(
     use_flash_attn=False, # set to True for better efficiency if flash attn is installed and dtype is float16 or bfloat16
     lang_sym=owsm_language,
     task_sym='<asr>',
+    nbest=1,              # output topk transcriptions. Default to 1
 )
 
 # Load dataset
@@ -40,7 +41,7 @@ for split in ['train', 'test']:
 
       # Single-item inference
       pred_text = model(wav)[0][3]        # predicted hypothesis
-
+      breakpoint()
       all_gts.append(gt_text)
       all_preds.append(pred_text)
 
