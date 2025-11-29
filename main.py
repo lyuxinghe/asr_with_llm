@@ -18,7 +18,7 @@ def main():
                         help="Dataset name, e.g. 'edinburghcstr/ami', 'distil-whisper/earnings22'")
     parser.add_argument("--subset", type=str, default=None,
                         help="Dataset subset/config, e.g. 'ihm', 'sdm' for 'ami', and 'chunked' for 'earnings22'.")
-    parser.add_argument("--splits", type=str, default="train,test",
+    parser.add_argument("--splits", type=str, default="test",
                         help="Comma-separated dataset splits, e.g. 'train,test'")
     parser.add_argument("--nbest", type=int, default=1,
                         help="Number of hypotheses to output from the model.")
@@ -70,26 +70,43 @@ def main():
         total = len(ds) if args.limit is None else min(len(ds), args.limit)
         print(f"Processing {total} / {len(ds)} samples...")
 
-        all_gts = []
-        all_preds = []
+        results = []
 
         print(f"Running inference on split: {split} ...")
 
         for i in tqdm(range(total)):
             wav = audio_list[i]["array"]
             gt_text = text_list[i]
-
+            
+            # [(text, token, token_int, text_nospecial, hypothesis object)
+            # see ./espnet/espnet2/bin/s2t_inference, ./espnet/espnet/nets/beam_search.py
             hyps = model(wav)
-            breakpoint()
-            pred_text = hyps[0][3]  # Only saving the best prediction, even if nbest != 1
+            
+            # Create a dictionary for the current sample
+            row = {"gt": gt_text}
+            
+            for j, hyp in enumerate(hyps):
+                # hyp is a tuple: (text, token, token_int, text_nospecial, hypothesis_object)
+                # We want text_nospecial (index 3) and score from hypothesis_object (index 4)
+                pred_text = hyp[3]
+                # hypothesis object is at index 4
+                hyp_obj = hyp[4]
+                score = hyp_obj.score
+                
+                # Convert tensor to float if necessary
+                if hasattr(score, "item"):
+                    score = score.item()
+                
+                # Store 1-based index keys
+                row[f"pred_text_{j+1}"] = pred_text
+                row[f"pred_score_{j+1}"] = score
 
-            all_gts.append(gt_text)
-            all_preds.append(pred_text)
+            results.append(row)
 
         # ---------------------------
         # Save predictions
         # ---------------------------
-        df = pd.DataFrame({"gt": all_gts, "pred": all_preds})
+        df = pd.DataFrame(results)
 
         subset_tag = args.subset if args.subset is not None else "none"
         out_csv = f"{args.dataset.replace('/', '_')}_{subset_tag}_{split}_preds.csv"

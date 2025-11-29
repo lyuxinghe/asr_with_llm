@@ -118,11 +118,17 @@ def main():
 
     df = pd.read_csv(args.csv)
 
-    if "gt" not in df.columns or "pred" not in df.columns:
-        raise ValueError("CSV must contain 'gt' and 'pred' columns.")
+    if "gt" not in df.columns:
+        raise ValueError("CSV must contain 'gt' column.")
+
+    if "pred" in df.columns:
+        preds = df["pred"].tolist()
+    elif "pred_text_1" in df.columns:
+        preds = df["pred_text_1"].tolist()
+    else:
+        raise ValueError("CSV must contain 'pred' or 'pred_text_1' column.")
 
     gts = df["gt"].tolist()
-    preds = df["pred"].tolist()
 
     # Sentence-level WERs
     sent_wers = [wer(h, r) for h, r in zip(preds, gts)]    
