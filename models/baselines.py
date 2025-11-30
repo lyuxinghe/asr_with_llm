@@ -4,7 +4,7 @@ Uses locally deployed LLM via vLLM or HuggingFace Transformers.
 """
 
 import os
-from typing import Optional
+from typing import Optional, List, Tuple
 import pandas as pd
 
 
@@ -102,6 +102,10 @@ Return ONLY the corrected transcription, nothing else."""
             base_url=self.vllm_api_base,
         )
         print(f"Connected to vLLM server at {self.vllm_api_base}")
+    
+    def _build_prompt(self, asr_text: str) -> str:
+        """Build the user prompt."""
+        return f"ASR Output: {asr_text}"
         
     def __call__(self, asr_text: str) -> str:
         """
@@ -133,18 +137,20 @@ Return ONLY the corrected transcription, nothing else."""
         if not asr_text.strip():
             return asr_text
         
+        prompt = self._build_prompt(asr_text)
+        
         if self.backend == "transformers":
-            return self._correct_transformers(asr_text)
+            return self._generate_transformers(prompt)
         else:
-            return self._correct_vllm(asr_text)
+            return self._generate_vllm(prompt)
     
-    def _correct_transformers(self, asr_text: str) -> str:
-        """Correct using HuggingFace Transformers."""
+    def _generate_transformers(self, prompt: str) -> str:
+        """Generate response using HuggingFace Transformers."""
         import torch
         
         messages = [
             {"role": "system", "content": self.system_prompt},
-            {"role": "user", "content": f"ASR Output: {asr_text}"},
+            {"role": "user", "content": prompt},
         ]
         
         # Apply chat template
@@ -170,14 +176,14 @@ Return ONLY the corrected transcription, nothing else."""
         
         return response.strip()
     
-    def _correct_vllm(self, asr_text: str) -> str:
-        """Correct using vLLM server."""
+    def _generate_vllm(self, prompt: str) -> str:
+        """Generate response using vLLM server."""
         try:
             response = self.client.chat.completions.create(
                 model=self.model_name,
                 messages=[
                     {"role": "system", "content": self.system_prompt},
-                    {"role": "user", "content": f"ASR Output: {asr_text}"},
+                    {"role": "user", "content": prompt},
                 ],
                 max_tokens=self.max_new_tokens,
                 temperature=0,  # Greedy decoding
@@ -185,4 +191,92 @@ Return ONLY the corrected transcription, nothing else."""
             return response.choices[0].message.content.strip()
         except Exception as e:
             print(f"Warning: vLLM request failed: {e}")
-            return asr_text
+            return prompt.replace("ASR Output: ", "")  # Return original on failure
+
+
+class NBestLLM(OneBestLLM):
+    """
+    Post-processes N-best ASR hypotheses using a locally deployed LLM.
+    
+    Inherits from OneBestLLM with the same interface.
+    The only difference is the prompt format - it shows all N-best hypotheses
+    with their scores to help the LLM make a better decision.
+    
+    Input: List of (text, score) tuples
+    Output: Corrected transcription string
+    """
+    
+    DEFAULT_SYSTEM_PROMPT = """You are an expert ASR post-processor. You will be given a list of candidate transcriptions from an ASR system, ranked by confidence score.
+
+Your task is to determine the most accurate transcription. Consider:
+1. Words appearing in multiple candidates are more likely correct
+2. Higher scores indicate higher confidence, but the top candidate isn't always correct
+3. Fix common ASR errors: homophones, word boundaries, spelling
+4. Ensure grammatical correctness and semantic coherence
+5. Preserve the original meaning and intent
+6. If a candidate looks correct, you can return it unchanged
+
+Return ONLY the corrected transcription, nothing else."""
+
+    def __call__(self, hypotheses: List[Tuple[str, float]]) -> str:
+        """
+        Post-process N-best ASR hypotheses using the LLM.
+        
+        Args:
+            hypotheses: List of (text, score) tuples, ranked by score (highest first).
+            
+        Returns:
+            The corrected transcription string.
+        """
+        return self.correct(hypotheses)
+    
+    def correct(self, hypotheses: List[Tuple[str, float]]) -> str:
+        """
+        Post-process N-best ASR hypotheses using the LLM.
+        
+        Args:
+            hypotheses: List of (text, score) tuples.
+            
+        Returns:
+            The corrected transcription string.
+        """
+        # Handle empty case
+        if not hypotheses:
+            return ""
+        
+        # Filter out empty/NaN hypotheses
+        valid_hypotheses = []
+        for text, score in hypotheses:
+            if text is None or (isinstance(text, float) and pd.isna(text)):
+                continue
+            text = str(text)
+            if text.strip():
+                valid_hypotheses.append((text, score))
+        
+        if not valid_hypotheses:
+            return ""
+        
+        # If only one valid hypothesis, just process it like OneBestLLM
+        if len(valid_hypotheses) == 1:
+            return super().correct(valid_hypotheses[0][0])
+        
+        prompt = self._build_prompt(valid_hypotheses)
+        
+        if self.backend == "transformers":
+            return self._generate_transformers(prompt)
+        else:
+            return self._generate_vllm(prompt)
+    
+    def _build_prompt(self, hypotheses: List[Tuple[str, float]]) -> str:
+        """Build the user prompt with all N-best hypotheses."""
+        lines = ["ASR Candidates:"]
+        
+        for i, (text, score) in enumerate(hypotheses, 1):
+            if score is None or (isinstance(score, float) and pd.isna(score)):
+                score_str = "N/A"
+            else:
+                score_str = f"{score:.4f}"
+            
+            lines.append(f"[{i}] (score: {score_str}) {text}")
+        
+        return "\n".join(lines)

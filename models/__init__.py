@@ -1,2 +1,2 @@
-from .baselines import OneBestLLM
+from .baselines import OneBestLLM, NBestLLM
 

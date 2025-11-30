@@ -6,7 +6,7 @@ from espnet2.bin.s2t_inference import Speech2Text
 import pandas as pd
 
 # Registered models
-REGISTERED_MODELS = ["owsm_v4", "1-best_llm"]
+REGISTERED_MODELS = ["owsm_v4", "1-best_llm", "n-best_llm"]
 
 # Prediction output directory
 PREDICTIONS_DIR = "predictions"
@@ -164,6 +164,82 @@ def run_1best_llm_inference(args):
         print(f"Saved predictions → {out_csv}")
 
 
+def run_nbest_llm_inference(args):
+    """Run N-best LLM post-processing inference."""
+    from models import NBestLLM
+    
+    # Create the LLM model instance
+    print(f"Initializing N-best LLM model: {args.llm_model} (backend: {args.llm_backend})")
+    llm_model = NBestLLM(
+        model_name=args.llm_model,
+        backend=args.llm_backend,
+        vllm_api_base=args.vllm_url,
+    )
+    
+    splits = [s.strip() for s in args.splits.split(",")]
+    
+    for split in splits:
+        # Look for the source prediction CSV (from owsm_v4)
+        source_model = "owsm_v4"
+        source_csv = get_prediction_path(args.dataset, args.subset, split, source_model)
+        
+        if not os.path.exists(source_csv):
+            raise FileNotFoundError(
+                f"Source prediction file not found: {source_csv}\n"
+                f"Please run OWSM inference first with: "
+                f"python main.py --model owsm_v4 --dataset {args.dataset} "
+                f"--subset {args.subset or 'none'} --splits {split} --nbest N"
+            )
+        
+        print(f"\nLoading source predictions from: {source_csv}")
+        df = pd.read_csv(source_csv)
+        
+        # Detect how many hypotheses are available
+        pred_text_cols = [c for c in df.columns if c.startswith("pred_text_")]
+        n_hypotheses = len(pred_text_cols)
+        
+        if n_hypotheses < 2:
+            print(f"Warning: Only {n_hypotheses} hypothesis found. "
+                  f"Consider running OWSM with --nbest N where N > 1.")
+        
+        print(f"Found {n_hypotheses} hypotheses per sample")
+        
+        # Determine how many samples to process
+        total = len(df) if args.limit is None else min(len(df), args.limit)
+        print(f"Processing {total} / {len(df)} samples...")
+        
+        results = []
+        
+        print(f"Running N-best LLM post-processing on split: {split} ...")
+        
+        for i in tqdm(range(total)):
+            row = df.iloc[i]
+            gt_text = row["gt"]
+            
+            # Collect all hypotheses with their scores
+            hypotheses = []
+            for j in range(1, n_hypotheses + 1):
+                text = row.get(f"pred_text_{j}")
+                score = row.get(f"pred_score_{j}")
+                hypotheses.append((text, score))
+            
+            # Run N-best LLM processing
+            corrected_text = llm_model(hypotheses)
+            
+            result_row = {
+                "gt": gt_text,
+                "pred_text_1": corrected_text,
+                "original_pred": hypotheses[0][0] if hypotheses else "",
+            }
+            results.append(result_row)
+        
+        # Save predictions
+        result_df = pd.DataFrame(results)
+        out_csv = get_prediction_path(args.dataset, args.subset, split, args.model)
+        result_df.to_csv(out_csv, index=False)
+        print(f"Saved predictions → {out_csv}")
+
+
 def main():
     # ---------------------------
     # Argument Parser
@@ -208,6 +284,8 @@ def main():
         run_owsm_inference(args)
     elif args.model == "1-best_llm":
         run_1best_llm_inference(args)
+    elif args.model == "n-best_llm":
+        run_nbest_llm_inference(args)
     else:
         raise NotImplementedError(f"Model '{args.model}' is not implemented.")
 
