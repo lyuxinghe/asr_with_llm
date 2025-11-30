@@ -45,5 +45,5 @@ python wer.py --csv ${Path_to_your_csv_file}$
 | n-best_llm |  31.56% | 18.87% | ... | ... |
 
 
-### 5. OWSM nbest=5 Predictions
+### 5. Model Predictions
 https://drive.google.com/drive/folders/1Vf0427fsbtGhff2mytWBdp1MnVD_weA6?usp=drive_link
