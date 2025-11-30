@@ -20,18 +20,40 @@ class OneBestLLM:
     and uses an LLM to correct potential transcription errors.
     """
     
-    DEFAULT_SYSTEM_PROMPT = """You are an expert ASR post-processor. Your task is to correct transcription errors in the given ASR output.
+    DEFAULT_SYSTEM_PROMPT = """You are an ASR error correction system. Your task is to fix word-level errors in speech recognition output.
+EXAMPLES:
+Input: "yeah yeah we're gonna meet up"
+Output: "yeah yeah we're gonna meet up"
+(Keep repeated words exactly as-is)
 
-Rules:
-1. Fix obvious spelling errors and typos
-2. Correct grammatical issues that are likely transcription errors
-3. Fix common ASR mistakes (homophones, word boundaries, etc.)
-4. Preserve the original meaning and intent
-5. Do NOT add or remove significant content
-6. Do NOT change the style or formality of the text
-7. If the transcription looks correct, return it unchanged
+Input: "i mean we're not even their yet"
+Output: "i mean we're not even there yet"
+(Fix "their" → "there", keep everything else)
 
-Return ONLY the corrected transcription, nothing else."""
+Input: "um i don't know um what to do"
+Output: "um i don't know um what to do"
+(Keep all "um" and disfluencies)
+
+Input: "we need to do do that first"
+Output: "we need to do do that first"
+(Keep repeated "do do" - speaker stuttered)
+
+Input: "the recei get there"
+Output: "the receipt get there"
+(Fix misspelling, keep grammar errors)
+
+Input: "참 yeah okay"
+Output: "um yeah okay"
+(Replace non-English with likely English word)
+
+RULES:
+- NEVER remove repeated words like "yeah yeah", "i i", "the the"
+- NEVER remove filler words like "um", "uh", "like", "you know"
+- NEVER fix grammar - keep "we was" as "we was"
+- ONLY fix: misspellings, wrong homophones, non-English characters
+- Output must have SAME word count as input
+
+Return ONLY the corrected text."""
 
     def __init__(
         self,
@@ -206,17 +228,45 @@ class NBestLLM(OneBestLLM):
     Output: Corrected transcription string
     """
     
-    DEFAULT_SYSTEM_PROMPT = """You are an expert ASR post-processor. You will be given a list of candidate transcriptions from an ASR system, ranked by confidence score.
+    DEFAULT_SYSTEM_PROMPT = """You are an ASR error correction system. You will be given multiple candidate transcriptions from a speech recognition system with confidence scores.
+EXAMPLE:
+Candidates:
+[1] (score: -1.5) "yeah yeah we gonna meet"
+[2] (score: -2.0) "yeah we're gonna meet"
+[3] (score: -2.5) "yeah yeah we're going to meet"
+Output: "yeah yeah we're gonna meet"
+(Keep "yeah yeah" from [1], use "we're gonna" from [2])
 
-Your task is to determine the most accurate transcription. Consider:
-1. Words appearing in multiple candidates are more likely correct
-2. Higher scores indicate higher confidence, but the top candidate isn't always correct
-3. Fix common ASR errors: homophones, word boundaries, spelling
-4. Ensure grammatical correctness and semantic coherence
-5. Preserve the original meaning and intent
-6. If a candidate looks correct, you can return it unchanged
+EXAMPLE:
+Candidates:
+[1] (score: -3.0) "참 okay done"
+[2] (score: -4.0) "um okay done"
+Output: "um okay done"
+(Replace non-English "참" with "um" from candidate [2])
 
-Return ONLY the corrected transcription, nothing else."""
+EXAMPLE:
+Candidates:
+[1] (score: -1.0) "i i don't know"
+[2] (score: -1.5) "i don't know"
+Output: "i i don't know"
+(Keep repeated "i i" - the speaker stuttered)
+
+EXAMPLE:
+Candidates:
+[1] (score: -2.0) "we need to do do that"
+[2] (score: -2.5) "we need to do that"
+Output: "we need to do do that"
+(Keep repeated "do do" from top candidate - speaker stuttered)
+
+RULES:
+- NEVER remove repeated words - keep "yeah yeah", "i i", "the the"
+- NEVER remove fillers - keep "um", "uh", "like"
+- Prefer words appearing in multiple candidates
+- Replace non-English characters with English from other candidates
+- Higher scores (less negative) = higher confidence
+- Output word count should match the best candidate
+
+Return ONLY the transcription."""
 
     def __call__(self, hypotheses: List[Tuple[str, float]]) -> str:
         """

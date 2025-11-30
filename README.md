@@ -13,7 +13,7 @@ conda activate asr_llm
 cd espnet
 pip install -e .
 pip install espnet-model-zoo "datasets<4.0.0" torchaudio
-pip install transformers accelerate
+pip install transformers accelerate autoawq
 ```
 
 ### 2. Inference
@@ -41,8 +41,8 @@ python wer.py --csv ${Path_to_your_csv_file}$
 | Model | AMI Avg-WER | AMI Corpus-WER | Earnings22 Avg-WER | Earnings22 Corpus-WER |
 |------|-------------:|---------------:|-------------------:|----------------------:|
 | OWSM_v4 | 28.01%       | 15.71%         | 31.87%             | 24.24%                |
-| 1-best_llm |  34.04% | 26.18% | ... | ... |
-| n-best_llm |  31.56% | 18.87% | ... | ... |
+| 1-best_llm |  31.22% | 19.07% | ... | ... |
+| n-best_llm |  29.94% | 16.11% | ... | ... |
 
 
 ### 5. Model Predictions
